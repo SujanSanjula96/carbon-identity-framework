@@ -20,6 +20,7 @@ package org.wso2.carbon.identity.application.authentication.framework.handler.ap
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
+import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.identity.application.authentication.framework.exception.UserIdNotFoundException;
 import org.wso2.carbon.identity.application.authentication.framework.handler.approles.ApplicationRolesResolver;
 import org.wso2.carbon.identity.application.authentication.framework.handler.approles.exception.ApplicationRolesException;
@@ -95,6 +96,9 @@ public class AppAssociatedRolesResolverImpl implements ApplicationRolesResolver 
 
         if (authenticatedUser == null) {
             throw RoleResolverUtils.handleClientException(ERROR_CODE_USER_NULL);
+        }
+        if (CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME) {
+            return new String[0];
         }
         if (authenticatedUser.isFederatedUser()) {
             return getAppAssociatedRolesForFederatedUser(authenticatedUser, applicationId);
