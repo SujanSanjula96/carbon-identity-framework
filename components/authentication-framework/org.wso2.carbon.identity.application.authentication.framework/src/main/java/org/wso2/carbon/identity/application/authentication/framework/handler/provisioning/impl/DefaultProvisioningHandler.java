@@ -29,6 +29,7 @@ import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.core.util.PermissionUpdateUtil;
 import org.wso2.carbon.identity.application.authentication.framework.exception.FrameworkException;
+import org.wso2.carbon.identity.application.authentication.framework.exception.UserSessionException;
 import org.wso2.carbon.identity.application.authentication.framework.handler.provisioning.ProvisioningHandler;
 import org.wso2.carbon.identity.application.authentication.framework.internal.FrameworkServiceDataHolder;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
@@ -37,6 +38,8 @@ import org.wso2.carbon.identity.application.common.model.User;
 import org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants;
 import org.wso2.carbon.identity.core.util.IdentityConfigParser;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
+import org.wso2.carbon.identity.role.v2.mgt.core.RoleManagementService;
+import org.wso2.carbon.identity.role.v2.mgt.core.exception.IdentityRoleManagementException;
 import org.wso2.carbon.identity.user.profile.mgt.association.federation.FederatedAssociationManager;
 import org.wso2.carbon.identity.user.profile.mgt.association.federation.constant.FederatedAssociationConstants;
 import org.wso2.carbon.identity.user.profile.mgt.association.federation.exception.FederatedAssociationManagerException;
@@ -140,8 +143,13 @@ public class DefaultProvisioningHandler implements ProvisioningHandler {
                 log.debug("User: " + username + " with roles : " + roles + " is going to be provisioned");
             }
 
-            // If internal roles exists convert internal role domain names to pre defined camel case domain names.
-            List<String> rolesToAdd = convertInternalRoleDomainsToCamelCase(roles);
+            List<String> rolesToAdd;
+            if (CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME) {
+                // If internal roles exists convert internal role domain names to pre defined camel case domain names.
+                rolesToAdd = convertInternalRoleDomainsToCamelCase(roles);
+            } else {
+                rolesToAdd = new ArrayList<>(roles);
+            }
 
             String idp = attributes.remove(FrameworkConstants.IDP_ID);
             String subjectVal = attributes.remove(FrameworkConstants.ASSOCIATED_ID);
@@ -275,64 +283,82 @@ public class DefaultProvisioningHandler implements ProvisioningHandler {
                 }
             }
 
-            boolean includeManuallyAddedLocalRoles = Boolean
-                    .parseBoolean(IdentityUtil.getProperty(SEND_MANUALLY_ADDED_LOCAL_ROLES_OF_IDP));
+            if (CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME) {
+                boolean includeManuallyAddedLocalRoles = Boolean
+                        .parseBoolean(IdentityUtil.getProperty(SEND_MANUALLY_ADDED_LOCAL_ROLES_OF_IDP));
 
-            List<String> currentRolesList = Arrays.asList(userStoreManager.getRoleListOfUser(username));
-            Collection<String> deletingRoles = retrieveRolesToBeDeleted(realm, currentRolesList, rolesToAdd);
+                List<String> currentRolesList = Arrays.asList(userStoreManager.getRoleListOfUser(username));
+                Collection<String> deletingRoles = retrieveRolesToBeDeleted(realm, currentRolesList, rolesToAdd);
 
-            // Updating user roles.
-            if (roles != null && roles.size() > 0) {
+                // Updating user roles.
+                if (roles != null && roles.size() > 0) {
 
-                if (idpToLocalRoleMapping != null && !idpToLocalRoleMapping.isEmpty()) {
-                    boolean excludeUnmappedRoles = false;
+                    if (idpToLocalRoleMapping != null && !idpToLocalRoleMapping.isEmpty()) {
+                        boolean excludeUnmappedRoles = false;
 
-                    if (StringUtils.isNotEmpty(IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP))) {
-                        excludeUnmappedRoles = Boolean
-                                .parseBoolean(IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP));
+                        if (StringUtils.isNotEmpty(IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP))) {
+                            excludeUnmappedRoles = Boolean
+                                    .parseBoolean(IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP));
+                        }
+
+                        if (excludeUnmappedRoles && includeManuallyAddedLocalRoles) {
+                            /*
+                                Get the intersection of deletingRoles with idpRoleMappings. Here we're deleting mapped
+                                roles and keeping manually added local roles.
+                            */
+                            deletingRoles = deletingRoles.stream().distinct().filter(idpToLocalRoleMapping::contains)
+                                    .collect(Collectors.toSet());
+                        }
                     }
 
-                    if (excludeUnmappedRoles && includeManuallyAddedLocalRoles) {
-                        /*
-                            Get the intersection of deletingRoles with idpRoleMappings. Here we're deleting mapped
-                            roles and keeping manually added local roles.
-                        */
-                        deletingRoles = deletingRoles.stream().distinct().filter(idpToLocalRoleMapping::contains)
-                                .collect(Collectors.toSet());
+                    // No need to add already existing roles again.
+                    rolesToAdd.removeAll(currentRolesList);
+
+                    // Cannot add roles that doesn't exists in the system.
+                    List<String> nonExistingUnmappedIdpRoles = new ArrayList<>();
+                    for (String role : rolesToAdd) {
+                        if (!userStoreManager.isExistingRole(role)) {
+                            nonExistingUnmappedIdpRoles.add(role);
+                        }
                     }
-                }
+                    rolesToAdd.removeAll(nonExistingUnmappedIdpRoles);
 
-                // No need to add already existing roles again.
-                rolesToAdd.removeAll(currentRolesList);
+                    // TODO : Does it need to check this?
+                    // Check for case whether super admin login
+                    handleFederatedUserNameEqualsToSuperAdminUserName(realm, username, userStoreManager, deletingRoles);
 
-                // Cannot add roles that doesn't exists in the system.
-                List<String> nonExistingUnmappedIdpRoles = new ArrayList<>();
-                for (String role : rolesToAdd) {
-                    if (!userStoreManager.isExistingRole(role)) {
-                        nonExistingUnmappedIdpRoles.add(role);
-                    }
-                }
-                rolesToAdd.removeAll(nonExistingUnmappedIdpRoles);
-
-                // TODO : Does it need to check this?
-                // Check for case whether super admin login
-                handleFederatedUserNameEqualsToSuperAdminUserName(realm, username, userStoreManager, deletingRoles);
-
-                updateUserWithNewRoleSet(username, userStoreManager, rolesToAdd, deletingRoles);
-            } else {
-                if (includeManuallyAddedLocalRoles) {
-                    // Remove only IDP mapped roles and keep manually added local roles.
-                    if (CollectionUtils.isNotEmpty(idpToLocalRoleMapping)) {
-                        deletingRoles = deletingRoles.stream().distinct().filter(idpToLocalRoleMapping::contains)
-                                .collect(Collectors.toSet());
+                    updateUserWithNewRoleSet(username, userStoreManager, rolesToAdd, deletingRoles);
+                } else {
+                    if (includeManuallyAddedLocalRoles) {
+                        // Remove only IDP mapped roles and keep manually added local roles.
+                        if (CollectionUtils.isNotEmpty(idpToLocalRoleMapping)) {
+                            deletingRoles = deletingRoles.stream().distinct().filter(idpToLocalRoleMapping::contains)
+                                    .collect(Collectors.toSet());
+                            updateUserWithNewRoleSet(username, userStoreManager, new ArrayList<>(), deletingRoles);
+                        }
+                    } else {
+                        // Remove all roles of the user.
                         updateUserWithNewRoleSet(username, userStoreManager, new ArrayList<>(), deletingRoles);
                     }
-                } else {
-                    // Remove all roles of the user.
-                    updateUserWithNewRoleSet(username, userStoreManager, new ArrayList<>(), deletingRoles);
+                }
+            } else {
+                try {
+                    RoleManagementService roleManagementService = FrameworkServiceDataHolder.getInstance()
+                            .getRoleManagementServiceV2();
+                    String userId;
+                    userId = FrameworkUtils.resolveUserIdFromUsername(userStoreManager, username);
+                    List<String> currentRoles = roleManagementService.getRoleIdListOfUser(userId, tenantDomain);
+                    rolesToAdd.removeAll(currentRoles);
+                    for (String roleId : rolesToAdd) {
+                        if (roleManagementService.isExistingRole(roleId, tenantDomain)) {
+                            roleManagementService.updateUserListOfRole(roleId, Arrays.asList(userId),
+                                    new ArrayList<>(), tenantDomain);
+                        }
+                    }
+                } catch (UserSessionException | IdentityRoleManagementException e) {
+                    throw new FrameworkException("Error while retrieving roles of user: " + username, e);
                 }
             }
-
             PermissionUpdateUtil.updatePermissionTree(tenantId);
 
         } catch (org.wso2.carbon.user.api.UserStoreException | FederatedAssociationManagerException e) {

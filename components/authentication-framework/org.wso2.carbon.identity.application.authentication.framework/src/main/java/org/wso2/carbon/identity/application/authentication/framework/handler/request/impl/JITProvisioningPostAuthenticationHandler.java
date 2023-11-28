@@ -25,6 +25,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.consent.mgt.core.ConsentManager;
 import org.wso2.carbon.consent.mgt.core.exception.ConsentManagementException;
 import org.wso2.carbon.consent.mgt.core.model.PIICategoryValidity;
@@ -79,6 +80,7 @@ import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -861,6 +863,13 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
             idpRoleClaimUri = FrameworkUtils.getIdpRoleClaimUri(externalIdPConfig);
         }
 
+        String idpGroupsClaimUri = Arrays.stream(externalIdPConfig.getClaimMappings())
+                .filter(claimMap ->
+                        FrameworkConstants.GROUPS_CLAIM.equals(claimMap.getLocalClaim().getClaimUri()))
+                .map(claimMap -> claimMap.getRemoteClaim().getClaimUri())
+                .findFirst()
+                .orElse(null);
+
         /* Get the mapped user roles according to the mapping in the IDP configuration. Exclude the unmapped from the
          returned list.
          */
@@ -868,9 +877,24 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
             excludeUnmappedRoles = Boolean
                     .parseBoolean(IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP));
         }
-        List<String> identityProviderMappedUserRolesUnmappedExclusive = FrameworkUtils
-                .getIdentityProvideMappedUserRoles(externalIdPConfig, originalExternalAttributeValueMap,
-                        idpRoleClaimUri, excludeUnmappedRoles);
+
+        List<String> identityProviderMappedUserRolesUnmappedExclusive;
+        if (CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME) {
+            identityProviderMappedUserRolesUnmappedExclusive = FrameworkUtils
+                    .getIdentityProvideMappedUserRoles(externalIdPConfig, originalExternalAttributeValueMap,
+                            idpRoleClaimUri, excludeUnmappedRoles);
+        } else {
+            try {
+                identityProviderMappedUserRolesUnmappedExclusive = FrameworkUtils
+                        .getAssignedRolesOfFederatedUser(externalIdPConfig, originalExternalAttributeValueMap,
+                                idpGroupsClaimUri, context.getTenantDomain());
+            } catch (FrameworkException e) {
+                throw new PostAuthenticationFailedException(ErrorMessages.ERROR_WHILE_HANDLING_CLAIM_MAPPINGS.getCode
+                        (), ErrorMessages.ERROR_WHILE_HANDLING_CLAIM_MAPPINGS.getMessage(), e);
+            }
+
+        }
+
         localClaimValues.put(FrameworkConstants.ASSOCIATED_ID,
                 stepConfig.getAuthenticatedUser().getAuthenticatedSubjectIdentifier());
         localClaimValues.put(FrameworkConstants.IDP_ID, stepConfig.getAuthenticatedIdP());
