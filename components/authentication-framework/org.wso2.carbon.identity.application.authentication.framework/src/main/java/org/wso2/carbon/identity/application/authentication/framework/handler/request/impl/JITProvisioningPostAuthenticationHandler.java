@@ -18,6 +18,7 @@
 
 package org.wso2.carbon.identity.application.authentication.framework.handler.request.impl;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.StringUtils;
@@ -52,10 +53,13 @@ import org.wso2.carbon.identity.application.authentication.framework.store.UserS
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementException;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
 import org.wso2.carbon.identity.application.common.model.IdentityProvider;
+import org.wso2.carbon.identity.application.common.model.RoleV2;
 import org.wso2.carbon.identity.application.common.model.User;
 import org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants;
+import org.wso2.carbon.identity.application.mgt.ApplicationConstants;
 import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataHandler;
 import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
 import org.wso2.carbon.identity.core.ServiceURLBuilder;
@@ -63,6 +67,8 @@ import org.wso2.carbon.identity.core.URLBuilderException;
 import org.wso2.carbon.identity.core.util.IdentityCoreConstants;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
+import org.wso2.carbon.identity.role.v2.mgt.core.RoleManagementService;
+import org.wso2.carbon.identity.role.v2.mgt.core.exception.IdentityRoleManagementException;
 import org.wso2.carbon.identity.user.profile.mgt.association.federation.FederatedAssociationManager;
 import org.wso2.carbon.identity.user.profile.mgt.association.federation.exception.FederatedAssociationManagerException;
 import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
@@ -80,9 +86,11 @@ import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -94,6 +102,7 @@ import static org.wso2.carbon.identity.application.authentication.framework.util
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_GETTING_IDP_BY_NAME;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_GETTING_REALM_IN_POST_AUTHENTICATION;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_TRYING_TO_GET_CLAIMS_WHILE_TRYING_TO_PASSWORD_PROVISION;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_TRYING_TO_HANDLE_ROLE_CLAIM_FOR_PROVISIONED_USER;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_TRYING_TO_PROVISION_USER_WITHOUT_PASSWORD_PROVISIONING;
 
 /**
@@ -923,6 +932,8 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
 
                 FrameworkUtils.getStepBasedSequenceHandler()
                         .callJitProvisioningWithV2Roles(username, context, assignedRoleIdList, localClaimValues);
+                // Handle role claim for manually added roles of JIT provisioned user.
+                handleRoleClaim(username, context);
             }
         } catch (FrameworkException e) {
             handleExceptions(
@@ -977,6 +988,63 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
         } catch (ConsentManagementException e) {
             handleExceptions(String.format(ErrorMessages.ERROR_WHILE_ADDING_CONSENT.getMessage(), tenantDomain),
                     ErrorMessages.ERROR_WHILE_ADDING_CONSENT.getCode(), e);
+        }
+    }
+
+    /**
+     * Handle the role claim for JIT provisioned users.
+     *
+     * @param username Username.
+     * @param context  Authentication Context.
+     * @throws PostAuthenticationFailedException If an error occurred while handling the role claim.
+     */
+    private void handleRoleClaim(String username, AuthenticationContext context)
+            throws PostAuthenticationFailedException {
+
+        try {
+            String tenantDomain = context.getTenantDomain();
+            RoleManagementService roleManagementService = FrameworkServiceDataHolder.getInstance()
+                    .getRoleManagementServiceV2();
+            AuthenticatedUser authenticatedUser = context.getSequenceConfig().getAuthenticatedUser();
+            if (!authenticatedUser.isFederatedUser()) {
+                username = MultitenantUtils.getTenantAwareUsername(username);
+            }
+
+            UserRealm realm = getUserRealm(tenantDomain);
+            UserStoreManager userStoreManager = getUserStoreManager(context.getExternalIdP()
+                    .getProvisioningUserStoreId(), realm, username);
+            String userId = FrameworkUtils.resolveUserIdFromUsername(userStoreManager, username);
+
+            // Get the assigned roles of the user.
+            List<String> userRoleIdList = roleManagementService.getRoleIdListOfUser(userId, tenantDomain);
+            String applicationId = context.getSequenceConfig().getApplicationConfig().getServiceProvider()
+                    .getApplicationResourceId();
+            // Get the roles assigned to the application.
+            List<RoleV2> appAssociatedRoles = FrameworkServiceDataHolder.getInstance().getApplicationManagementService()
+                    .getAssociatedRolesOfApplication(applicationId, tenantDomain);
+            if (CollectionUtils.isEmpty(appAssociatedRoles)) {
+                return;
+            }
+            // Filter the role name list of the user associated with the application.
+            List<String> userRoleNameListOfApp = appAssociatedRoles.stream()
+                    .filter(role -> userRoleIdList.contains(role.getId()))
+                    .map(RoleV2::getName)
+                    .collect(Collectors.toList());
+
+            Map<String, String> roleClaimMap = new HashMap<>();
+            String roleClaimMapping = getRoleClaimMapping(context);
+            if (StringUtils.isNotEmpty(roleClaimMapping) && CollectionUtils.isNotEmpty(userRoleNameListOfApp)) {
+                roleClaimMap.put(roleClaimMapping,
+                        String.join(FrameworkUtils.getMultiAttributeSeparator(), userRoleNameListOfApp));
+                Map<ClaimMapping, String> userAttributes = authenticatedUser.getUserAttributes();
+                userAttributes.putAll(FrameworkUtils.buildClaimMappings(roleClaimMap));
+                authenticatedUser.setUserAttributes(userAttributes);
+                context.getSequenceConfig().setAuthenticatedUser(authenticatedUser);
+            }
+        } catch (FrameworkException | IdentityApplicationManagementException | IdentityRoleManagementException |
+                 UserSessionException | UserStoreException e) {
+            handleExceptions(ERROR_WHILE_TRYING_TO_HANDLE_ROLE_CLAIM_FOR_PROVISIONED_USER.getMessage(),
+                    ERROR_WHILE_TRYING_TO_HANDLE_ROLE_CLAIM_FOR_PROVISIONED_USER.getCode(), e);
         }
     }
 
@@ -1158,5 +1226,41 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
             throw new UserStoreException(e.getMessage(), e);
         }
         return userStoreDomain;
+    }
+
+    private String getRoleClaimMapping(AuthenticationContext context) throws FrameworkException {
+
+        String spStandardDialect = (String) context.getProperty(FrameworkConstants.SP_STANDARD_DIALECT);
+        Map<String, String> spClaimMappings = context.getSequenceConfig().getApplicationConfig().
+                getClaimMappings();
+        Map<String, String> localToSPClaimMappings = null;
+
+        if (spStandardDialect != null) {
+            try {
+                localToSPClaimMappings = ClaimMetadataHandler.getInstance()
+                        .getMappingsMapFromOtherDialectToCarbon(spStandardDialect,
+                                Collections.singleton(IdentityUtil.getLocalGroupsClaimURI()),
+                                context.getTenantDomain(), true);
+            } catch (ClaimMetadataException e) {
+                throw new FrameworkException("Error occurred while getting claim mappings from " +
+                        spStandardDialect + " dialect to " +
+                        ApplicationConstants.LOCAL_IDP_DEFAULT_CLAIM_DIALECT + " dialect for " +
+                        context.getTenantDomain() + " to handle federated claims", e);
+            }
+        } else if (!spClaimMappings.isEmpty()) {
+            localToSPClaimMappings = FrameworkUtils.getLocalToSPClaimMappings(spClaimMappings);
+        } else {
+            // no standard dialect and no custom claim mappings
+            throw new AssertionError("Authenticator Error! Authenticator does not have a " +
+                    "standard dialect and no custom claim mappings defined for IdP");
+        }
+        if (localToSPClaimMappings != null) {
+            for (Map.Entry<String, String> entry : localToSPClaimMappings.entrySet()) {
+                if (entry.getKey().equals(IdentityUtil.getLocalGroupsClaimURI())) {
+                    return entry.getValue();
+                }
+            }
+        }
+        return null;
     }
 }
