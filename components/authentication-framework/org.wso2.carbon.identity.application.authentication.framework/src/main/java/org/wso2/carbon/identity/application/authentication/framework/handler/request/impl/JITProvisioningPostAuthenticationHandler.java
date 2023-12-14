@@ -97,6 +97,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import static org.wso2.carbon.identity.application.authentication.framework.handler.request.PostAuthnHandlerFlowStatus.SUCCESS_COMPLETED;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.ALLOW_LOGIN_TO_IDP;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Config.SEND_MANUALLY_ADDED_LOCAL_ROLES_OF_IDP;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Config.SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.EMAIL_ADDRESS_CLAIM;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_GETTING_IDP_BY_NAME;
@@ -929,11 +930,18 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
                 String idpGroupsClaimUri = FrameworkUtils.getIdpGroupClaimUri(externalIdPConfig);
                 List<String> assignedRoleIdList = FrameworkUtils.getAssignedRolesFromIdPGroups(externalIdPConfig,
                         originalExternalAttributeValueMap, idpGroupsClaimUri, context.getTenantDomain());
+                boolean sendManuallyAddedLocalRoles = false;
+                if (StringUtils.isNotEmpty(IdentityUtil.getProperty(SEND_MANUALLY_ADDED_LOCAL_ROLES_OF_IDP))) {
+                    sendManuallyAddedLocalRoles = Boolean
+                            .parseBoolean(IdentityUtil.getProperty(SEND_MANUALLY_ADDED_LOCAL_ROLES_OF_IDP));
+                }
 
                 FrameworkUtils.getStepBasedSequenceHandler()
                         .callJitProvisioningWithV2Roles(username, context, assignedRoleIdList, localClaimValues);
-                // Handle role claim for manually added roles of JIT provisioned user.
-                handleRoleClaim(username, context);
+                if (sendManuallyAddedLocalRoles) {
+                    // Handle role claim for manually added roles of JIT provisioned user.
+                    handleRoleClaim(username, context);
+                }
             }
         } catch (FrameworkException e) {
             handleExceptions(
@@ -992,7 +1000,7 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
     }
 
     /**
-     * Handle the role claim for JIT provisioned users.
+     * Handle the role claim for JIT provisioned users to include manually added roles.
      *
      * @param username Username.
      * @param context  Authentication Context.
@@ -1005,10 +1013,6 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
             String tenantDomain = context.getTenantDomain();
             RoleManagementService roleManagementService = FrameworkServiceDataHolder.getInstance()
                     .getRoleManagementServiceV2();
-            AuthenticatedUser authenticatedUser = context.getSequenceConfig().getAuthenticatedUser();
-            if (!authenticatedUser.isFederatedUser()) {
-                username = MultitenantUtils.getTenantAwareUsername(username);
-            }
 
             UserRealm realm = getUserRealm(tenantDomain);
             UserStoreManager userStoreManager = getUserStoreManager(context.getExternalIdP()
@@ -1036,6 +1040,7 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
             if (StringUtils.isNotEmpty(roleClaimMapping) && CollectionUtils.isNotEmpty(userRoleNameListOfApp)) {
                 roleClaimMap.put(roleClaimMapping,
                         String.join(FrameworkUtils.getMultiAttributeSeparator(), userRoleNameListOfApp));
+                AuthenticatedUser authenticatedUser = context.getSequenceConfig().getAuthenticatedUser();
                 Map<ClaimMapping, String> userAttributes = authenticatedUser.getUserAttributes();
                 userAttributes.putAll(FrameworkUtils.buildClaimMappings(roleClaimMap));
                 authenticatedUser.setUserAttributes(userAttributes);
