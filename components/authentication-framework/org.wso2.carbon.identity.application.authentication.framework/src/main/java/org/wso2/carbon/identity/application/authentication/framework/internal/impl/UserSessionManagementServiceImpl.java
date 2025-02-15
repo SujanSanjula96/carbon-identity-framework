@@ -648,6 +648,9 @@ public class UserSessionManagementServiceImpl implements UserSessionManagementSe
         for (Application app: userSession.getApplications()) {
             ServiceProvider serviceProvider = applicationManager
                     .getServiceProvider(Integer.parseInt(app.getAppId()));
+            if (serviceProvider == null) {
+                return false;
+            }
             boolean isFragmentApp = Arrays.stream(serviceProvider.getSpProperties())
                     .anyMatch(property -> IS_FRAGMENT_APP.equals(property.getName()) &&
                     Boolean.parseBoolean(property.getValue()));
@@ -676,6 +679,9 @@ public class UserSessionManagementServiceImpl implements UserSessionManagementSe
         for (Application app: userSession.getApplications()) {
             ServiceProvider serviceProvider = applicationManager
                     .getServiceProvider(Integer.parseInt(app.getAppId()));
+            if (serviceProvider == null) {
+                continue;
+            }
             if (serviceProvider.isSaasApp()) {
                 return true;
             }
