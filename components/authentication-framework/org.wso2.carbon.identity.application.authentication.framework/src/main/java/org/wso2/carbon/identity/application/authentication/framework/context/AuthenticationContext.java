@@ -28,6 +28,7 @@ import org.wso2.carbon.identity.application.authentication.framework.model.Authe
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticationRequest;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
+import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.base.IdentityRuntimeException;
 import org.wso2.carbon.identity.core.bean.context.MessageContext;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
@@ -119,6 +120,10 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     private final Map<String, List<String>> loggedOutAuthenticators = new HashMap<>();
 
     private boolean sendToMultiOptionPage;
+
+    private String accessingOrgTenantDomain;
+
+    private ServiceProvider primaryServiceProvider;
 
     /**
      * This attribute holds the context expiry time in epoch timestamp (nanoseconds).
@@ -846,6 +851,27 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     public void setExpiryTime(long expiryTimeNano) {
 
         this.expiryTimeNano = expiryTimeNano;
+    }
+
+    public String getAccessingOrgTenantDomain() {
+
+        return accessingOrgTenantDomain;
+    }
+
+    public void setAccessingOrgTenantDomain(String accessingOrgTenantDomain) {
+
+        this.accessingOrgTenantDomain = accessingOrgTenantDomain;
+    }
+
+    public ServiceProvider getPrimaryServiceProvider() {
+
+        return primaryServiceProvider;
+    }
+
+    public void setPrimaryServiceProvider(
+            ServiceProvider primaryServiceProvider) {
+
+        this.primaryServiceProvider = primaryServiceProvider;
     }
 
     /**

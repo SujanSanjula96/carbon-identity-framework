@@ -29,6 +29,7 @@ import org.slf4j.MDC;
 import org.wso2.carbon.base.MultitenantConstants;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationDataPublisher;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationFlowHandler;
+import org.wso2.carbon.identity.application.authentication.framework.OrganizationResolver;
 import org.wso2.carbon.identity.application.authentication.framework.cache.AuthenticationRequestCacheEntry;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ApplicationConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.AuthenticatorConfig;
@@ -57,6 +58,7 @@ import org.wso2.carbon.identity.application.authentication.framework.model.Commo
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.authentication.framework.util.LoginContextManagementUtil;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementException;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
 import org.wso2.carbon.identity.application.common.model.Property;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
@@ -64,6 +66,7 @@ import org.wso2.carbon.identity.central.log.mgt.utils.LogConstants;
 import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
+import org.wso2.carbon.identity.organization.management.service.model.Organization;
 import org.wso2.carbon.user.api.Tenant;
 import org.wso2.carbon.user.api.UserStoreException;
 import org.wso2.carbon.user.core.UserCoreConstants;
@@ -86,6 +89,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -133,6 +137,7 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
     private static final String PROMPT_ID_PARAM = "promptId";
     private static final String PROMPT_RESP_PARAM = "promptResp";
     private static final String SESSION_LIMIT_HANDLER_PARAM = "terminateActiveSessionsAction";
+    private static final OrganizationResolver organizationResolver = new OrganizationResolver();
 
     public static DefaultRequestCoordinator getInstance() {
 
@@ -731,6 +736,9 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
         // tenant domain
         String tenantDomain = getTenantDomain(request);
 
+        // Get the accessing organization in B2B SaaS context.
+        Optional<Organization> organization = getAccessingOrganization(request, tenantDomain);
+
         String loginDomain = request.getParameter(FrameworkConstants.RequestParams.LOGIN_TENANT_DOMAIN);
         String userDomain = request.getParameter(FrameworkConstants.RequestParams.USER_TENANT_DOMAIN_HINT);
 
@@ -744,6 +752,20 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
         context.setUserTenantDomainHint(userDomain);
         context.setExpiryTime(FrameworkUtils.getCurrentStandardNano() + TimeUnit.MINUTES.toNanos(
                 IdentityUtil.getAuthenticationContextValidityPeriod()));
+
+        if (organization.isPresent()) {
+            context.setAccessingOrgTenantDomain(context.getTenantDomain());
+            context.setTenantDomain("f009fd96-9857-45b0-87e9-e97cd3d33b8a");
+            try {
+                ServiceProvider primaryServiceProvider = FrameworkServiceDataHolder.getInstance()
+                        .getApplicationManagementService().getServiceProviderByClientId(relyingParty, "oauth2",
+                                tenantDomain);
+                context.setPrimaryServiceProvider(primaryServiceProvider);
+                context.setRelyingParty("980994e0-420c-4bca-919f-602bed093acb");
+            } catch (IdentityApplicationManagementException e) {
+                throw new FrameworkException(e.getMessage());
+            }
+        }
 
         if (IdentityTenantUtil.isTenantedSessionsEnabled()) {
             String loginTenantDomain = context.getLoginTenantDomain();
@@ -846,6 +868,19 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
         }
 
         return context;
+    }
+
+    private Optional<Organization> getAccessingOrganization(HttpServletRequest request, String rootTenantDomain) {
+
+        List<String> allowedDiscoveryParams = organizationResolver.getAllowedParameters();
+        Map<String, String> discoveryParams = new HashMap<>();
+        for (String param : allowedDiscoveryParams) {
+            String value = request.getParameter(param);
+            if (StringUtils.isNotBlank(value)) {
+                discoveryParams.put(param, value);
+            }
+        }
+        return organizationResolver.resolveAccessingOrganization(rootTenantDomain, discoveryParams);
     }
 
     /**
