@@ -213,6 +213,9 @@ public class DefaultStepBasedSequenceHandler implements StepBasedSequenceHandler
             }
 
             FrameworkUtils.getStepHandler().handle(request, response, context);
+            if (StringUtils.isNotBlank(context.getSwitchingSubOrganization())) {
+                return;
+            }
 
             // if step is not completed, that means step wants to redirect to outside
             if (!stepConfig.isCompleted()) {

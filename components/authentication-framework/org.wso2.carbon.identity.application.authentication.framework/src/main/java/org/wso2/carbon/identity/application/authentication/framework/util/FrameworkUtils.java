@@ -59,6 +59,7 @@ import org.wso2.carbon.identity.application.authentication.framework.cache.Sessi
 import org.wso2.carbon.identity.application.authentication.framework.cache.SessionContextCacheKey;
 import org.wso2.carbon.identity.application.authentication.framework.config.ConfigurationFacade;
 import org.wso2.carbon.identity.application.authentication.framework.config.builder.FileBasedConfigurationBuilder;
+import org.wso2.carbon.identity.application.authentication.framework.config.loader.SequenceLoader;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ApplicationConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.AuthenticatorConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ExternalIdPConfig;
@@ -108,6 +109,7 @@ import org.wso2.carbon.identity.application.authentication.framework.model.Authe
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticationRequest;
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticationResult;
 import org.wso2.carbon.identity.application.authentication.framework.store.UserSessionStore;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementException;
 import org.wso2.carbon.identity.application.common.model.Claim;
 import org.wso2.carbon.identity.application.common.model.ClaimConfig;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
@@ -118,6 +120,7 @@ import org.wso2.carbon.identity.application.common.model.IdentityProviderPropert
 import org.wso2.carbon.identity.application.common.model.Property;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.application.mgt.ApplicationConstants;
+import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.base.IdentityException;
 import org.wso2.carbon.identity.base.IdentityRuntimeException;
 import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
@@ -224,6 +227,7 @@ import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_
 import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ENABLED;
 import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_NAME;
 import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_TYPE;
+import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.TENANT_NAME_FROM_CONTEXT;
 import static org.wso2.carbon.identity.core.util.IdentityTenantUtil.isLegacySaaSAuthenticationEnabled;
 import static org.wso2.carbon.identity.core.util.IdentityUtil.getLocalGroupsClaimURI;
 
@@ -4557,5 +4561,49 @@ public class FrameworkUtils {
             tenantDomain = org.wso2.carbon.base.MultitenantConstants.SUPER_TENANT_DOMAIN_NAME;
         }
         return tenantDomain;
+    }
+
+    public static void updateContextForSubOrgLogin(HttpServletRequest request, HttpServletResponse response,
+                                             AuthenticationContext context) throws FrameworkException {
+
+        String orgId = context.getSwitchingSubOrganization();
+        context.setAccessingOrgTenantDomain(context.getTenantDomain());
+        context.setTenantDomain(orgId);
+        context.setRelyingParty("e5b8751e-f234-4ad2-9ec1-fa32fe11bac5");
+        ServiceProvider serviceProvider = getServiceProvider(context.getRequestType(), context.getRelyingParty(),
+                context.getTenantDomain());
+        SequenceLoader sequenceBuilder = FrameworkServiceDataHolder.getInstance().getSequenceLoader();
+        SequenceConfig sequenceConfig =
+                sequenceBuilder.getSequenceConfig(context, new HashMap<>(), serviceProvider);
+        context.setSequenceConfig(sequenceConfig);
+        context.setCurrentStep(0);
+        context.setCurrentAuthenticator(null);
+        context.setCurrentAuthenticatedIdPs(new HashMap<>());
+        context.setPreviousAuthenticatedIdPs(new HashMap<>());
+        context.setExternalIdP(null);
+        PrivilegedCarbonContext.getThreadLocalCarbonContext().setOrganizationId(orgId);
+        PrivilegedCarbonContext.getThreadLocalCarbonContext().setTenantDomain(orgId);
+        IdentityUtil.threadLocalProperties.get().put(TENANT_NAME_FROM_CONTEXT, orgId);
+    }
+
+    private static ServiceProvider getServiceProvider(String reqType, String clientId, String tenantDomain)
+            throws FrameworkException {
+
+        ApplicationManagementService appInfo = ApplicationManagementService.getInstance();
+
+        // special case for OpenID Connect, these clients are stored as OAuth2 clients
+        if ("oidc".equals(reqType)) {
+            reqType = "oauth2";
+        }
+
+        ServiceProvider serviceProvider;
+
+        try {
+            serviceProvider = appInfo.getServiceProviderByClientId(clientId, reqType, tenantDomain);
+        } catch (IdentityApplicationManagementException e) {
+            throw new FrameworkException("Error occurred while retrieving service provider for client ID: " + clientId
+                    + " and tenant: " + tenantDomain, e);
+        }
+        return serviceProvider;
     }
 }

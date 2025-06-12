@@ -549,6 +549,9 @@ public class GraphBasedSequenceHandler extends DefaultStepBasedSequenceHandler i
 
 
         FrameworkUtils.getStepHandler().handle(request, response, context);
+        if (StringUtils.isNotBlank(context.getSwitchingSubOrganization())) {
+            return true;
+        }
 
         flowStatus = (AuthenticatorFlowStatus) request
                 .getAttribute(FrameworkConstants.RequestParams.FLOW_STATUS);

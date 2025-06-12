@@ -752,6 +752,12 @@ public class DefaultStepHandler implements StepHandler {
                 handleAPIBasedAuthenticationData(request, authenticator, context);
             }
 
+            if (StringUtils.equals("OrgSSOAuthenticator", authenticator.getName())
+                    && status == AuthenticatorFlowStatus.SUCCESS_COMPLETED) {
+                context.setSwitchingSubOrganization(request.getAttribute("RESOLVED_ORG_ID").toString());
+                return;
+            }
+
             /* Marking the flow as an external call for downstream components.
              This is used to ensure things like additional params are not attached to
              external calls.*/

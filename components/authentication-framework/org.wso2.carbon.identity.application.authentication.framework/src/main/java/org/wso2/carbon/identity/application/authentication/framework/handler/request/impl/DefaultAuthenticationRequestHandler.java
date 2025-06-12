@@ -207,7 +207,14 @@ public class DefaultAuthenticationRequestHandler implements AuthenticationReques
                 }
 
                 // call step based sequence handler
-                FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
+                if (StringUtils.isBlank(context.getSwitchingSubOrganization())) {
+                    FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
+                }
+
+                if (StringUtils.isNotBlank(context.getSwitchingSubOrganization())) {
+                    FrameworkUtils.updateContextForSubOrgLogin(request, response, context);
+                    FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
+                }
             }
         } catch (FrameworkException e) {
             // Remove nonce cookie after authentication failure.
@@ -1052,14 +1059,16 @@ public class DefaultAuthenticationRequestHandler implements AuthenticationReques
         }
         String path = null;
         if (IdentityTenantUtil.isTenantedSessionsEnabled()) {
+            tenantDomain = context.getAccessingOrgTenantDomain() != null ?
+                    context.getAccessingOrgTenantDomain() : context.getLoginTenantDomain();
             if (FrameworkUtils.isOrganizationQualifiedRequest()) {
-                path = FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX + context.getLoginTenantDomain() + "/";
+                path = FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX + tenantDomain + "/";
             } else {
                 if (!IdentityTenantUtil.isSuperTenantAppendInCookiePath() &&
-                        MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(context.getLoginTenantDomain())) {
+                        MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(tenantDomain)) {
                     path = "/";
                 } else {
-                    path = FrameworkConstants.TENANT_CONTEXT_PREFIX + context.getLoginTenantDomain() + "/";
+                    path = FrameworkConstants.TENANT_CONTEXT_PREFIX + tenantDomain + "/";
                 }
             }
         }
