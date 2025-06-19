@@ -755,6 +755,7 @@ public class DefaultStepHandler implements StepHandler {
             if (StringUtils.equals("OrgSSOAuthenticator", authenticator.getName())
                     && status == AuthenticatorFlowStatus.SUCCESS_COMPLETED) {
                 context.setSwitchingSubOrganization(request.getAttribute("RESOLVED_ORG_ID").toString());
+                context.setOrganizationLogin(true);
                 return;
             }
 

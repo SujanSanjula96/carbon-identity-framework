@@ -207,13 +207,9 @@ public class DefaultAuthenticationRequestHandler implements AuthenticationReques
                 }
 
                 // call step based sequence handler
-                if (StringUtils.isBlank(context.getSwitchingSubOrganization())) {
-                    FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
-                }
-
+                FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
                 if (StringUtils.isNotBlank(context.getSwitchingSubOrganization())) {
-                    FrameworkUtils.updateContextForSubOrgLogin(request, response, context);
-                    FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
+                    return;
                 }
             }
         } catch (FrameworkException e) {

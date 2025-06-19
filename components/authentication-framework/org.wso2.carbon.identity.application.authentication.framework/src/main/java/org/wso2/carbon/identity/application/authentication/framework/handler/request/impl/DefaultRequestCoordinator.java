@@ -27,6 +27,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.slf4j.MDC;
 import org.wso2.carbon.base.MultitenantConstants;
+import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationDataPublisher;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationFlowHandler;
 import org.wso2.carbon.identity.application.authentication.framework.cache.AuthenticationRequestCacheEntry;
@@ -414,7 +415,29 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
                 context.setReturning(returning);
 
                 if (!context.isLogoutRequest()) {
-                    FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                    if (!context.isOrganizationLogin()) {
+                        FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                    }
+
+                    if (context.isOrganizationLogin()) {
+                        if (StringUtils.isNotBlank(context.getSwitchingSubOrganization())) {
+                            FrameworkUtils.updateContextForSubOrgLogin(context);
+                        }
+                        boolean startTenantFlow = StringUtils.isNotBlank(
+                                PrivilegedCarbonContext.getThreadLocalCarbonContext().getOrganizationId());
+                        try {
+                            if (startTenantFlow) {
+                                FrameworkUtils.startTenantFlow(context.getAccessingOrgTenantDomain());
+                                PrivilegedCarbonContext.getThreadLocalCarbonContext()
+                                        .setApplicationResidentOrganizationId(context.getTenantDomain());
+                            }
+                            FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                        } finally {
+                            if (startTenantFlow) {
+                                FrameworkUtils.endTenantFlow();
+                            }
+                        }
+                    }
 
                     // Adding spId param to the redirect URL if it is not an external system call.
                     boolean isExternalCall = Boolean.TRUE.equals(

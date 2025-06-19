@@ -39,6 +39,7 @@ import org.json.JSONObject;
 import org.owasp.encoder.Encode;
 import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.base.MultitenantConstants;
+import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.core.SameSiteCookie;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.base.IdentityRuntimeException;
@@ -80,6 +81,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.StringTokenizer;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
@@ -839,6 +841,11 @@ public class IdentityManagementEndpointUtil {
                        client will have to assume organization ID is same as tenant domain. */
                     basePath = basePath.replace(FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX,
                                 FrameworkConstants.TENANT_CONTEXT_PREFIX);
+                    String accessingOrganization = PrivilegedCarbonContext.getThreadLocalCarbonContext()
+                            .getApplicationResidentOrganizationId();
+                    if (StringUtils.isNotBlank(accessingOrganization)) {
+                        basePath = basePath.replace("/t/carbon.super", "");
+                    }
                     }
                 } else {
                     serverUrl = ServiceURLBuilder.create().build().getAbsoluteInternalURL();

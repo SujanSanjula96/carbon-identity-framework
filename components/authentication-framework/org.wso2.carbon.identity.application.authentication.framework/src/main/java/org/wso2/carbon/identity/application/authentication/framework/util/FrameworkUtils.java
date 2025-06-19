@@ -975,6 +975,12 @@ public class FrameworkUtils {
 
         return PrivilegedCarbonContext.getThreadLocalCarbonContext().getOrganizationId() != null;
     }
+
+    public static boolean isOrganizationAccessingRequest() {
+
+        return PrivilegedCarbonContext.getThreadLocalCarbonContext().getApplicationResidentOrganizationId() != null;
+    }
+
     /**
      * Remove the auth cookie in the tenanted path.
      *
@@ -4563,27 +4569,28 @@ public class FrameworkUtils {
         return tenantDomain;
     }
 
-    public static void updateContextForSubOrgLogin(HttpServletRequest request, HttpServletResponse response,
-                                             AuthenticationContext context) throws FrameworkException {
+    public static void updateContextForSubOrgLogin(AuthenticationContext context) throws FrameworkException {
 
         String orgId = context.getSwitchingSubOrganization();
         context.setAccessingOrgTenantDomain(context.getTenantDomain());
         context.setTenantDomain(orgId);
-        context.setRelyingParty("e5b8751e-f234-4ad2-9ec1-fa32fe11bac5");
+        context.setRelyingParty("5b8bff99-d337-4e91-b94b-2d2d820f4255");
         ServiceProvider serviceProvider = getServiceProvider(context.getRequestType(), context.getRelyingParty(),
                 context.getTenantDomain());
         SequenceLoader sequenceBuilder = FrameworkServiceDataHolder.getInstance().getSequenceLoader();
         SequenceConfig sequenceConfig =
                 sequenceBuilder.getSequenceConfig(context, new HashMap<>(), serviceProvider);
         context.setSequenceConfig(sequenceConfig);
+        context.setProperty(FrameworkConstants.JSAttributes.PROP_CURRENT_NODE, null);
         context.setCurrentStep(0);
         context.setCurrentAuthenticator(null);
         context.setCurrentAuthenticatedIdPs(new HashMap<>());
         context.setPreviousAuthenticatedIdPs(new HashMap<>());
         context.setExternalIdP(null);
-        PrivilegedCarbonContext.getThreadLocalCarbonContext().setOrganizationId(orgId);
-        PrivilegedCarbonContext.getThreadLocalCarbonContext().setTenantDomain(orgId);
-        IdentityUtil.threadLocalProperties.get().put(TENANT_NAME_FROM_CONTEXT, orgId);
+        context.setReturning(false);
+        context.setSwitchingSubOrganization(null);
+        context.setOrganizationLogin(true);
+        PrivilegedCarbonContext.getThreadLocalCarbonContext().setApplicationResidentOrganizationId(orgId);
     }
 
     private static ServiceProvider getServiceProvider(String reqType, String clientId, String tenantDomain)
