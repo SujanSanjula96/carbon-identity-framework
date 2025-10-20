@@ -32,6 +32,7 @@ import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationDataPublisher;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationFlowHandler;
 import org.wso2.carbon.identity.application.authentication.framework.cache.AuthenticationRequestCacheEntry;
+import org.wso2.carbon.identity.application.authentication.framework.config.loader.SequenceLoader;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ApplicationConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.AuthenticatorConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.SequenceConfig;
@@ -57,13 +58,18 @@ import org.wso2.carbon.identity.application.authentication.framework.internal.Fr
 import org.wso2.carbon.identity.application.authentication.framework.internal.FrameworkServiceDataHolder;
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.model.CommonAuthResponseWrapper;
+import org.wso2.carbon.identity.application.authentication.framework.model.OrganizationData;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.authentication.framework.util.LoginContextManagementUtil;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementException;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
+import org.wso2.carbon.identity.application.common.model.InboundAuthenticationConfig;
+import org.wso2.carbon.identity.application.common.model.InboundAuthenticationRequestConfig;
 import org.wso2.carbon.identity.application.common.model.Property;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
+import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.base.IdentityException;
 import org.wso2.carbon.identity.central.log.mgt.utils.LogConstants;
 import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
@@ -97,6 +103,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -433,6 +440,11 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
                 if (!context.isLogoutRequest()) {
                     enteredFlow = enterFlow(Flow.Name.LOGIN);
                     FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                    if (context.isOrgLoginContextUpdateRequired()) {
+                        log.debug("Updating the authentication context with the organization login data.");
+                        updateContextForOrganizationLogin(context);
+                        FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                    }
 
                     // Adding spId param to the redirect URL if it is not an external system call.
                     boolean isExternalCall = Boolean.TRUE.equals(
@@ -1559,5 +1571,71 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
         } else {
             return Flow.InitiatingPersona.USER;
         }
+    }
+
+    private void updateContextForOrganizationLogin(AuthenticationContext context) throws FrameworkException {
+
+        OrganizationData organization = context.getOrganizationLoginData().getAccessingOrganization();
+        context.getOrganizationLoginData().setPrimaryTenantDomain(context.getTenantDomain());
+        context.getOrganizationLoginData().setApplicationResidentTenantDomain(context.getTenantDomain());
+        String tenantDomain = organization.getOrganizationHandle();
+        context.setTenantDomain(tenantDomain);
+        String sharedApplicationId = context.getOrganizationLoginData().getSharedApplicationId();
+        ServiceProvider sharedApplication = this.getServiceProvider(sharedApplicationId, tenantDomain);
+        if (sharedApplication == null) {
+            throw new FrameworkException("Shared application not found for organization with handle: " + tenantDomain +
+                    " and application id: " + sharedApplicationId);
+        } else {
+            SequenceLoader sequenceBuilder = FrameworkServiceDataHolder.getInstance().getSequenceLoader();
+            SequenceConfig sequenceConfig = sequenceBuilder.getSequenceConfig(
+                    context, new HashMap(), sharedApplication);
+            context.setSequenceConfig(sequenceConfig);
+            context.setCurrentStep(0);
+            context.setCurrentAuthenticator(null);
+            context.setCurrentAuthenticatedIdPs(new HashMap());
+            context.setPreviousAuthenticatedIdPs(new HashMap());
+            context.setExternalIdP(null);
+            context.setReturning(false);
+            context.setProperty("Adaptive.Auth.Current.Graph.Node", null);
+            context.setOrgLoginContextUpdateRequired(false);
+        }
+        PrivilegedCarbonContext.getThreadLocalCarbonContext().setApplicationResidentOrganizationId(
+                context.getOrganizationLoginData().getAccessingOrganization().getId());
+    }
+
+    private ServiceProvider getServiceProvider(String appId, String tenantDomain) throws FrameworkException {
+
+        ApplicationManagementService applicationManagementService = ApplicationManagementService.getInstance();
+
+        try {
+            ServiceProvider serviceProvider2 =
+                    applicationManagementService.getApplicationByResourceId(appId, tenantDomain);
+            Optional<InboundAuthenticationRequestConfig> authConfigOptional =
+                    getAuthenticationConfig(serviceProvider2);
+            if (authConfigOptional.isEmpty()) {
+                throw new FrameworkException("OAuth2 inbound authentication is not configured for appId: " + appId);
+            }
+            String clientId = authConfigOptional.get().getInboundAuthKey();
+            return getServiceProvider("oauth2", clientId, tenantDomain);
+        } catch (IdentityApplicationManagementException var6) {
+            throw new FrameworkException("Error while retrieving service provider for appId: " + appId, var6);
+        }
+    }
+
+    private Optional<InboundAuthenticationRequestConfig> getAuthenticationConfig(ServiceProvider application) {
+
+        InboundAuthenticationConfig inboundAuthConfig = application.getInboundAuthenticationConfig();
+        if (inboundAuthConfig == null) {
+            return Optional.empty();
+        }
+
+        InboundAuthenticationRequestConfig[] inbounds = inboundAuthConfig.getInboundAuthenticationRequestConfigs();
+        if (inbounds == null) {
+            return Optional.empty();
+        }
+
+        return Arrays.stream(inbounds).filter(inbound ->
+                        "oauth2".equals(inbound.getInboundAuthType()))
+                .findAny();
     }
 }

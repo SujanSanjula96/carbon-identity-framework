@@ -787,6 +787,17 @@ public class DefaultStepHandler implements StepHandler {
             AuthenticatorFlowStatus status;
             if (isAuthenticationRequired) {
                 status = authenticator.process(request, response, context);
+                if (StringUtils.equals("OrganizationIdentifierHandler", authenticator.getName()) &&
+                        status == AuthenticatorFlowStatus.SUCCESS_COMPLETED) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Organization is discovered successfully by the Organization Identifier Handler." +
+                                " Setting up the necessary flags and returning to execute the organization login.");
+                    }
+
+                    context.setOrganizationLogin(true);
+                    context.setOrgLoginContextUpdateRequired(true);
+                    return;
+                }
             } else {
                 // If the authenticator does not require authentication based on the assertion, we can skip the process.
                 status = AuthenticatorFlowStatus.SUCCESS_COMPLETED;

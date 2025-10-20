@@ -209,6 +209,14 @@ public class DefaultAuthenticationRequestHandler implements AuthenticationReques
 
                 // call step based sequence handler
                 FrameworkUtils.getStepBasedSequenceHandler().handle(request, response, context);
+                if (context.isOrgLoginContextUpdateRequired()) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Context update is required for the organization login. " +
+                                "Hence, returning to Request Coordinator.");
+                    }
+
+                    return;
+                }
             }
         } catch (FrameworkException e) {
             // Remove nonce cookie after authentication failure.
@@ -1078,6 +1086,9 @@ public class DefaultAuthenticationRequestHandler implements AuthenticationReques
                 // Handling the cookie path for requests coming with the path `/o/<org-id>`.
                 String organizationId = PrivilegedCarbonContext.getThreadLocalCarbonContext().getOrganizationId();
                 path = FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX + organizationId + "/";
+            } else if (StringUtils.isNotEmpty(PrivilegedCarbonContext.getThreadLocalCarbonContext()
+                    .getApplicationResidentOrganizationId())) {
+                path = FrameworkConstants.TENANT_CONTEXT_PREFIX + context.getLoginTenantDomain() + "/";
             } else {
                 if (!IdentityTenantUtil.isSuperTenantAppendInCookiePath() &&
                         MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(context.getLoginTenantDomain())) {
