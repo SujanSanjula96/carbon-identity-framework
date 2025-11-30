@@ -4443,10 +4443,16 @@ public class FrameworkUtils {
          */
         if (!(MY_ACCOUNT_APP.equals(serviceProvider) || CONSOLE_APP.equals(serviceProvider))) {
             if (callerPath != null && callerPath.startsWith(FrameworkConstants.TENANT_CONTEXT_PREFIX)) {
+                boolean mandateTenantedPath = true;
+                String appResidentOrgId = PrivilegedCarbonContext.getThreadLocalCarbonContext()
+                        .getApplicationResidentOrganizationId();
+                if (StringUtils.isNotBlank(appResidentOrgId)) {
+                    mandateTenantedPath = false;
+                }
                 String callerTenant = callerPath.split("/")[2];
                 String callerPathWithoutTenant = callerPath.replaceFirst("/t/[^/]+/", "/");
                 String redirectURL = ServiceURLBuilder.create().addPath(callerPathWithoutTenant)
-                        .setTenant(callerTenant, true).build().getAbsolutePublicURL();
+                        .setTenant(callerTenant, mandateTenantedPath).build().getAbsolutePublicURL();
                 return redirectURL;
             } else if (callerPath != null && callerPath.startsWith(FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX)) {
                 String callerOrgId = callerPath.split("/")[2];

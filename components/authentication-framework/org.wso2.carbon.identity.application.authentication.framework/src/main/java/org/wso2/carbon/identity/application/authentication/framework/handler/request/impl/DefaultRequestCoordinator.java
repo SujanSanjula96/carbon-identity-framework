@@ -44,6 +44,7 @@ import org.wso2.carbon.identity.application.authentication.framework.config.mode
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.context.SessionContext;
 import org.wso2.carbon.identity.application.authentication.framework.context.TransientObjectWrapper;
+import org.wso2.carbon.identity.application.authentication.framework.exception.AuthenticationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.CookieValidationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.ErrorToI18nCodeTranslator;
 import org.wso2.carbon.identity.application.authentication.framework.exception.FrameworkException;
@@ -59,6 +60,9 @@ import org.wso2.carbon.identity.application.authentication.framework.internal.Fr
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.model.CommonAuthResponseWrapper;
 import org.wso2.carbon.identity.application.authentication.framework.model.OrganizationData;
+import org.wso2.carbon.identity.application.authentication.framework.model.OrganizationDiscoveryInput;
+import org.wso2.carbon.identity.application.authentication.framework.model.OrganizationDiscoveryResult;
+import org.wso2.carbon.identity.application.authentication.framework.model.OrganizationLoginData;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
@@ -439,7 +443,10 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
 
                 if (!context.isLogoutRequest()) {
                     enteredFlow = enterFlow(Flow.Name.LOGIN);
-                    FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                    boolean isOrganizationLogin = isOrganizationLoginRequest(context);
+                    if (!isOrganizationLogin) {
+                        FrameworkUtils.getAuthenticationRequestHandler().handle(request, responseWrapper, context);
+                    }
                     if (context.isOrgLoginContextUpdateRequired()) {
                         log.debug("Updating the authentication context with the organization login data.");
                         updateContextForOrganizationLogin(context);
@@ -1637,5 +1644,41 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
         return Arrays.stream(inbounds).filter(inbound ->
                         "oauth2".equals(inbound.getInboundAuthType()))
                 .findAny();
+    }
+
+    private boolean isOrganizationLoginRequest(AuthenticationContext context) throws AuthenticationFailedException {
+
+        if (!context.isOrganizationLogin() &&
+                StringUtils.isNotBlank(context.getAuthenticationRequest().getAccessingOrgId())) {
+            OrganizationDiscoveryResult orgDiscoveryResult =
+                    handleOrganizationDiscovery(context.getAuthenticationRequest().getAccessingOrgId(), context);
+            OrganizationLoginData organizationLoginData = new OrganizationLoginData();
+            OrganizationData discoveredOrganization = new OrganizationData();
+            discoveredOrganization.setId(orgDiscoveryResult.getDiscoveredOrganization().getId());
+            discoveredOrganization.setName(orgDiscoveryResult.getDiscoveredOrganization().getName());
+            discoveredOrganization.setOrganizationHandle(
+                    orgDiscoveryResult.getDiscoveredOrganization().getOrganizationHandle());
+            organizationLoginData.setAccessingOrganization(discoveredOrganization);
+            organizationLoginData.setSharedApplicationId(orgDiscoveryResult.getSharedApplicationId());
+            context.setOrganizationLoginData(organizationLoginData);
+
+            context.setOrganizationLogin(true);
+            context.setOrgLoginContextUpdateRequired(true);
+            return true;
+        }
+        return false;
+    }
+
+    private OrganizationDiscoveryResult handleOrganizationDiscovery(
+            String accessingOrgId, AuthenticationContext context) throws AuthenticationFailedException {
+
+        try {
+            OrganizationDiscoveryInput orgDiscoveryInput = new OrganizationDiscoveryInput.Builder()
+                    .orgId(accessingOrgId).build();
+            return FrameworkServiceDataHolder.getInstance().getOrganizationDiscoveryHandler()
+                    .discoverOrganization(orgDiscoveryInput, context);
+        } catch (FrameworkException e) {
+            throw new AuthenticationFailedException("Error while discovering organization.", e);
+        }
     }
 }
