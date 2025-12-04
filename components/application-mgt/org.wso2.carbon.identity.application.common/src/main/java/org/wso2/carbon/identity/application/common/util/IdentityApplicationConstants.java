@@ -107,6 +107,8 @@ public class IdentityApplicationConstants {
     public static final String TRUSTED_APP_CONSENT_GRANTED_SP_PROPERTY_NAME = "trustedAppConsentGranted";
     public static final String TRUSTED_APP_CONSENT_GRANTED_SP_PROPERTY_DISPLAY_NAME =
             "Is consent granted for trusted app";
+    public static final String IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_NAME = "isNewB2BLoginEnabled";
+    public static final String IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_DISPLAY_NAME = "Is New B2B Login Enabled";
 
     public static final String IDP_ISSUER_NAME = "idpIssuerName";
 

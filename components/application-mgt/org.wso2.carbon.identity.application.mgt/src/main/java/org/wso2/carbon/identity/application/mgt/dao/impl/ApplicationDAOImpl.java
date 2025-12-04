@@ -171,6 +171,8 @@ import static org.wso2.carbon.identity.application.common.util.IdentityApplicati
 import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_B2B_SS_APP_SP_PROPERTY_NAME;
 import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_MANAGEMENT_APP_SP_PROPERTY_DISPLAY_NAME;
 import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_MANAGEMENT_APP_SP_PROPERTY_NAME;
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_DISPLAY_NAME;
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_NAME;
 import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_SYSTEM_RESERVED_APP_DISPLAY_NAME;
 import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_SYSTEM_RESERVED_APP_FLAG;
 import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.JWKS_URI_SP_PROPERTY_NAME;
@@ -489,6 +491,9 @@ public class ApplicationDAOImpl extends AbstractApplicationDAOImpl implements Pa
             ServiceProviderProperty isAPIBasedAuthenticationEnabled
                     = buildIsAPIBasedAuthenticationEnabledProperty(application);
             serviceProviderProperties.add(isAPIBasedAuthenticationEnabled);
+
+            ServiceProviderProperty isNewB2BLoginEnabled = buildIsNewB2BLoginEnabledProperty(application);
+            serviceProviderProperties.add(isNewB2BLoginEnabled);
 
             if (application.getClientAttestationMetaData() != null) {
                 ServiceProviderProperty isAttestationEnabled =
@@ -2254,6 +2259,7 @@ public class ApplicationDAOImpl extends AbstractApplicationDAOImpl implements Pa
             serviceProvider.setManagementApp(getIsManagementApp(propertyList));
             serviceProvider.setB2BSelfServiceApp(getIsB2BSSApp(propertyList));
             serviceProvider.setAPIBasedAuthenticationEnabled(getIsAPIBasedAuthenticationEnabled(propertyList));
+            serviceProvider.setNewB2BLoginEnabled(getIsNewB2BLoginEnabled(propertyList));
             ClientAttestationMetaData clientAttestationMetaData = new ClientAttestationMetaData();
             clientAttestationMetaData.setAttestationEnabled(getIsAttestationEnabled(propertyList));
             clientAttestationMetaData.setAndroidPackageName(getAndroidPackageName(propertyList));
@@ -2532,6 +2538,16 @@ public class ApplicationDAOImpl extends AbstractApplicationDAOImpl implements Pa
 
         String value = propertyList.stream()
                 .filter(property -> IS_API_BASED_AUTHENTICATION_ENABLED_PROPERTY_NAME.equals(property.getName()))
+                .findFirst()
+                .map(ServiceProviderProperty::getValue)
+                .orElse(StringUtils.EMPTY);
+        return Boolean.parseBoolean(value);
+    }
+
+    private boolean getIsNewB2BLoginEnabled(List<ServiceProviderProperty> propertyList) {
+
+        String value = propertyList.stream()
+                .filter(property -> IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_NAME.equals(property.getName()))
                 .findFirst()
                 .map(ServiceProviderProperty::getValue)
                 .orElse(StringUtils.EMPTY);
@@ -5377,6 +5393,9 @@ public class ApplicationDAOImpl extends AbstractApplicationDAOImpl implements Pa
         ServiceProviderProperty isB2BSSAppProperty = buildIsB2BSSAppProperty(sp);
         spPropertyMap.put(isB2BSSAppProperty.getName(), isB2BSSAppProperty);
 
+        ServiceProviderProperty isNewB2BLoginEnabledProperty = buildIsNewB2BLoginEnabledProperty(sp);
+        spPropertyMap.put(isNewB2BLoginEnabledProperty.getName(), isNewB2BLoginEnabledProperty);
+
         ServiceProviderProperty isApplicationEnabledProperty = buildIsApplicationEnabledProperty(sp);
         spPropertyMap.put(isApplicationEnabledProperty.getName(), isApplicationEnabledProperty);
 
@@ -5502,6 +5521,15 @@ public class ApplicationDAOImpl extends AbstractApplicationDAOImpl implements Pa
         isB2BSSAppProperty.setDisplayName(IS_B2B_SS_APP_SP_PROPERTY_DISPLAY_NAME);
         isB2BSSAppProperty.setValue(String.valueOf(sp.isB2BSelfServiceApp()));
         return isB2BSSAppProperty;
+    }
+
+    private ServiceProviderProperty buildIsNewB2BLoginEnabledProperty(ServiceProvider sp) {
+
+        ServiceProviderProperty isNewB2BLoginEnabledProperty = new ServiceProviderProperty();
+        isNewB2BLoginEnabledProperty.setName(IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_NAME);
+        isNewB2BLoginEnabledProperty.setDisplayName(IS_NEW_B2B_LOGIN_ENABLED_SP_PROPERTY_DISPLAY_NAME);
+        isNewB2BLoginEnabledProperty.setValue(String.valueOf(sp.isNewB2BLoginEnabled()));
+        return isNewB2BLoginEnabledProperty;
     }
 
     private ServiceProviderProperty buildIsApplicationEnabledProperty(ServiceProvider sp) {

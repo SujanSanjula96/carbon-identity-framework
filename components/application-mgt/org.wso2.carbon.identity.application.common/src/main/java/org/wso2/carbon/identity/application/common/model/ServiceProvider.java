@@ -61,6 +61,7 @@ public class ServiceProvider implements Serializable {
     private static final String TRUSTED_APP_METADATA = "TrustedAppMetadata";
     private static final String DISCOVERABLE_GROUPS = "DiscoverableGroups";
     private static final String DISCOVERABLE_GROUP = "DiscoverableGroup";
+    private static final String IS_NEW_B2B_LOGIN_ENABLED = "IsNewB2BLoginEnabled";
 
     @XmlTransient
     @JsonIgnore
@@ -172,6 +173,10 @@ public class ServiceProvider implements Serializable {
     @IgnoreNullElement
     @XmlElement(name = TRUSTED_APP_METADATA)
     private SpTrustedAppMetadata trustedAppMetadata;
+
+    @IgnoreNullElement
+    @XmlElement(name = IS_NEW_B2B_LOGIN_ENABLED)
+    private boolean isNewB2BLoginEnabled;
 
     /*
      * <ServiceProvider> <ApplicationID></ApplicationID> <Description></Description>
@@ -730,6 +735,16 @@ public class ServiceProvider implements Serializable {
     public void setApplicationEnabled(boolean applicationEnabled) {
 
         this.isApplicationEnabled = applicationEnabled;
+    }
+
+    public boolean isNewB2BLoginEnabled() {
+
+        return isNewB2BLoginEnabled;
+    }
+
+    public void setNewB2BLoginEnabled(boolean isNewB2BLoginEnabled) {
+
+        this.isNewB2BLoginEnabled = isNewB2BLoginEnabled;
     }
 }
 
