@@ -1075,7 +1075,7 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
                     }
                 }
 
-                if (!context.isOrgApplicationLogin() || !loadedSessionContext.isOrganizationLogin()) {
+                if (!context.isOrgApplicationLogin() && !loadedSessionContext.isOrganizationLogin()) {
                     if (applicationConfig != null && !applicationConfig.isSaaSApp()
                             && loadedSessionContext.getProperty(FrameworkUtils.TENANT_DOMAIN) != null) {
                         boolean isMatchingTenantDomain = StringUtils.equals(
@@ -1797,7 +1797,7 @@ public class DefaultRequestCoordinator extends AbstractRequestCoordinator implem
     private boolean isInitialOrganizationLoginRequest(AuthenticationContext context)
             throws AuthenticationFailedException {
 
-        if (context.isSharedAppLogin() || context.getProperty("isSubOrganizationLogin") != null) {
+        if (context.isSharedAppLogin() || context.isOrgApplicationLogin()) {
             return false;
         }
         String accessingOrgId = PrivilegedCarbonContext.getThreadLocalCarbonContext().getAccessingOrganizationId();
