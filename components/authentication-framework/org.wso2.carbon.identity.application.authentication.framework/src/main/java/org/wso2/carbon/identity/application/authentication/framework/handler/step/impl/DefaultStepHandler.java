@@ -99,6 +99,11 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.BASIC_AUTH_MECHANISM;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.OrgDiscoveryInputParameters.LOGIN_HINT;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.OrgDiscoveryInputParameters.ORG_DISCOVERY_TYPE;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.OrgDiscoveryInputParameters.ORG_HANDLE;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.OrgDiscoveryInputParameters.ORG_ID;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.OrgDiscoveryInputParameters.ORG_NAME;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.ORGANIZATION_IDENTIFIER_HANDLER;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_INVALID_AUTHENTICATOR;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_INVALID_USER_ASSERTION;
@@ -245,8 +250,11 @@ public class DefaultStepHandler implements StepHandler {
             return;
         }
 
-        // if Request has fidp param and if this is the first step
-        if (fidp != null && stepConfig.getOrder() == 1) {
+        if (stepConfig.getOrder() == 1 && canHandleOrgDiscovery(request, authConfigList)) {
+            handleOrganizationDiscovery(request, response, context);
+            return;
+        } else if (fidp != null && stepConfig.getOrder() == 1) {
+            // if Request has fidp param and if this is the first step
             handleHomeRealmDiscovery(request, response, context);
             return;
         } else if (context.isReturning()) {
@@ -511,6 +519,27 @@ public class DefaultStepHandler implements StepHandler {
                     showAuthFailureReason, retryParam, loginPage));
         } catch (IOException | URISyntaxException e) {
             throw new FrameworkException(e.getMessage(), e);
+        }
+    }
+
+    protected void handleOrganizationDiscovery(HttpServletRequest request,
+                                               HttpServletResponse response, AuthenticationContext context)
+            throws FrameworkException {
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Request contains org discovery parameters. Initiating Organization Discovery");
+        }
+
+        SequenceConfig sequenceConfig = context.getSequenceConfig();
+        StepConfig stepConfig = sequenceConfig.getStepMap().get(context.getCurrentStep());
+
+        // OrganizationIdentifierHandler presence in the step is guaranteed by the caller.
+        for (AuthenticatorConfig authConfig : stepConfig.getAuthenticatorList()) {
+            ApplicationAuthenticator authenticator = authConfig.getApplicationAuthenticator();
+            if (authenticator != null && ORGANIZATION_IDENTIFIER_HANDLER.equals(authenticator.getName())) {
+                doAuthentication(request, response, context, authConfig);
+                return;
+            }
         }
     }
 
@@ -1758,6 +1787,21 @@ public class DefaultStepHandler implements StepHandler {
             return false;
         }
         return true;
+    }
+
+    private boolean canHandleOrgDiscovery(HttpServletRequest request, List<AuthenticatorConfig> authConfigList) {
+
+        return hasOrgDiscoveryParam(request) && authConfigList.stream()
+                .anyMatch(ac -> ac.getApplicationAuthenticator() != null
+                        && ORGANIZATION_IDENTIFIER_HANDLER.equals(ac.getApplicationAuthenticator().getName()));
+    }
+
+    private boolean hasOrgDiscoveryParam(HttpServletRequest request) {
+
+        return request.getParameter(ORG_ID) != null
+                || request.getParameter(ORG_HANDLE) != null
+                || request.getParameter(ORG_NAME) != null
+                || (request.getParameter(LOGIN_HINT) != null && request.getParameter(ORG_DISCOVERY_TYPE) != null);
     }
 
     private boolean isOrgDiscoverySuccessful(ApplicationAuthenticator authenticator, AuthenticatorFlowStatus status) {
